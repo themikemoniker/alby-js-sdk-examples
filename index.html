@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Alby NWC Demo</title>
+</head>
+<body>
+  <h1>Alby NWC Wallet Demo</h1>
+
+  <div id="connect">
+    <h2>Connect</h2>
+    <input type="text" id="nwc-input" placeholder="Paste NWC URL" style="width: 80%;" />
+    <button id="connect-button">Connect</button>
+    <p>or</p>
+    <button id="alby-button">Connect with Alby</button>
+  </div>
+
+  <div id="wallet" style="display:none;">
+    <h2>Balance</h2>
+    <p id="balance">Loading...</p>
+
+    <h2>Pay Invoice</h2>
+    <p id="invoice-display">Loading...</p>
+    <button id="pay-button">Pay 1 sat</button>
+    <p id="payment-result"></p>
+  </div>
+
+  <script type="module">
+    import { webln } from "https://esm.sh/@getalby/sdk@5.0.0";
+    import { LightningAddress } from "https://esm.sh/@getalby/lightning-tools@5.1.2";
+
+    let nostrWebLN;
+
+    async function connectWithNWC(nwcUri) {
+      try {
+        nostrWebLN = new webln.NostrWebLNProvider({ nostrWalletConnectUrl: nwcUri });
+        await nostrWebLN.enable();
+
+        document.getElementById("connect").style.display = "none";
+        document.getElementById("wallet").style.display = "block";
+
+        const balance = await nostrWebLN.getBalance();
+        document.getElementById("balance").textContent = `${balance.balance} sats`;
+
+        const lightningAddress = new LightningAddress("hello@getalby.com");
+        await lightningAddress.fetch();
+        const invoice = await lightningAddress.requestInvoice({ satoshi: 1 });
+
+        document.getElementById("invoice-display").textContent = invoice.paymentRequest;
+        document.getElementById("pay-button").onclick = async () => {
+          const result = await nostrWebLN.sendPayment(invoice.paymentRequest);
+          document.getElementById("payment-result").textContent = `PAID! Preimage: ${result.preimage}`;
+        };
+      } catch (err) {
+        alert("Error: " + err.message);
+        console.error(err);
+      }
+    }
+
+    document.getElementById("connect-button").onclick = () => {
+      const nwcUri = document.getElementById("nwc-input").value;
+      connectWithNWC(nwcUri);
+    };
+
+    document.getElementById("alby-button").onclick = async () => {
+      const nwc = await webln.NostrWebLNProvider.withNewSecret();
+      const authUrl = nwc.getAuthorizationUrl({ name: "Vanilla NWC Demo" });
+      const nwcUrl = nwc.getNostrWalletConnectUrl(true);
+
+      const popup = window.open(authUrl.toString(), "_blank", "width=500,height=600");
+      const check = setInterval(() => {
+        try {
+          if (popup.closed) {
+            clearInterval(check);
+            connectWithNWC(nwcUrl);
+          }
+        } catch (e) {}
+      }, 1000);
+    };
+  </script>
+</body>
+</html>
