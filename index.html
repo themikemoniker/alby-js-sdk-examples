@@ -2,80 +2,94 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Alby NWC Demo</title>
+  <title>NWC Wallet Balances</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 1rem; }
+    input { width: 80%; padding: 0.5rem; margin-bottom: 0.5rem; }
+    button { padding: 0.5rem 1rem; }
+  </style>
 </head>
 <body>
-  <h1>Alby NWC Wallet Demo</h1>
+  <h1>⚡ NWC Wallet Balance Tracker</h1>
 
-  <div id="connect">
-    <h2>Connect</h2>
-    <input type="text" id="nwc-input" placeholder="Paste NWC URL" style="width: 80%;" />
-    <button id="connect-button">Connect</button>
-    <p>or</p>
-    <button id="alby-button">Connect with Alby</button>
-  </div>
+  <h2>Add Wallet</h2>
+  <input type="text" id="nwc-input" placeholder="Paste NWC URL" />
+  <button id="add-wallet">Add Wallet</button>
 
-  <div id="wallet" style="display:none;">
-    <h2>Balance</h2>
-    <p id="balance">Loading...</p>
+  <h2>Total Balance: <span id="total-balance">0</span> sats</h2>
 
-    <h2>Pay Invoice</h2>
-    <p id="invoice-display">Loading...</p>
-    <button id="pay-button">Pay 1 sat</button>
-    <p id="payment-result"></p>
-  </div>
+  <canvas id="balance-chart" width="600" height="300"></canvas>
+  <ul id="wallet-list"></ul>
 
   <script type="module">
     import { webln } from "https://esm.sh/@getalby/sdk@5.0.0";
-    import { LightningAddress } from "https://esm.sh/@getalby/lightning-tools@5.1.2";
 
-    let nostrWebLN;
+    const input = document.getElementById("nwc-input");
+    const button = document.getElementById("add-wallet");
+    const walletList = document.getElementById("wallet-list");
+    const totalDisplay = document.getElementById("total-balance");
+    const chartCanvas = document.getElementById("balance-chart").getContext("2d");
 
-    async function connectWithNWC(nwcUri) {
-      try {
-        nostrWebLN = new webln.NostrWebLNProvider({ nostrWalletConnectUrl: nwcUri });
-        await nostrWebLN.enable();
+    let chart;
+    const wallets = [];
+    let total = 0;
 
-        document.getElementById("connect").style.display = "none";
-        document.getElementById("wallet").style.display = "block";
-
-        const balance = await nostrWebLN.getBalance();
-        document.getElementById("balance").textContent = `${balance.balance} sats`;
-
-        const lightningAddress = new LightningAddress("hello@getalby.com");
-        await lightningAddress.fetch();
-        const invoice = await lightningAddress.requestInvoice({ satoshi: 1 });
-
-        document.getElementById("invoice-display").textContent = invoice.paymentRequest;
-        document.getElementById("pay-button").onclick = async () => {
-          const result = await nostrWebLN.sendPayment(invoice.paymentRequest);
-          document.getElementById("payment-result").textContent = `PAID! Preimage: ${result.preimage}`;
-        };
-      } catch (err) {
-        alert("Error: " + err.message);
-        console.error(err);
-      }
+    function updateChart() {
+      if (chart) chart.destroy();
+      chart = new Chart(chartCanvas, {
+        type: 'bar',
+        data: {
+          labels: wallets.map(w => w.alias),
+          datasets: [{
+            label: 'Balance (sats)',
+            data: wallets.map(w => w.balance)
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: {
+              beginAtZero: true
+            }
+          }
+        }
+      });
     }
 
-    document.getElementById("connect-button").onclick = () => {
-      const nwcUri = document.getElementById("nwc-input").value;
-      connectWithNWC(nwcUri);
-    };
+    button.onclick = async () => {
+      const nwcUri = input.value.trim();
+      if (!nwcUri) return alert("Please paste a valid NWC URL.");
 
-    document.getElementById("alby-button").onclick = async () => {
-      const nwc = await webln.NostrWebLNProvider.withNewSecret();
-      const authUrl = nwc.getAuthorizationUrl({ name: "Vanilla NWC Demo" });
-      const nwcUrl = nwc.getNostrWalletConnectUrl(true);
+      try {
+        const client = new webln.NostrWebLNProvider({ nostrWalletConnectUrl: nwcUri });
+        await client.enable();
 
-      const popup = window.open(authUrl.toString(), "_blank", "width=500,height=600");
-      const check = setInterval(() => {
-        try {
-          if (popup.closed) {
-            clearInterval(check);
-            connectWithNWC(nwcUrl);
-          }
-        } catch (e) {}
-      }, 1000);
+        const balance = await client.getBalance();
+        const info = await client.getInfo();
+
+        const alias = info?.node?.alias || info?.node?.pubkey.slice(0, 10) || "Wallet " + (wallets.length + 1);
+
+        // Save to array
+        wallets.push({ alias, balance: balance.balance });
+
+        // Update total and chart
+        total += balance.balance;
+        totalDisplay.textContent = total;
+        updateChart();
+
+        // Add to list
+        const li = document.createElement("li");
+        li.textContent = `${alias}: ${balance.balance} sats`;
+        walletList.appendChild(li);
+
+        // Clear input
+        input.value = "";
+
+      } catch (err) {
+        alert("❌ Error: " + err.message);
+        console.error(err);
+      }
     };
   </script>
 </body>
